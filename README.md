@@ -114,7 +114,7 @@ mpirun -np 2 a.out
 
 Combining the code from [the first example](#uma-with-cuda-and-openmp) and the [second](#shared-memory-using-mpi) would have given the following code :
 
-### *Non-woring code !!*
+### *Non-working code !!*
 
 ```cpp
 if (noderank == 0) {
@@ -134,11 +134,11 @@ if (noderank == 0) {
 omp_target_associate_ptr(table, table, size*sizeof(int), 0 /* device offset */ , gpuid);
 ```
 
-The code is *Non-woring code* because `MPI_Win_create_shared` (which would return a shared window as does `MPI_Win_allocate_shared`, while taking the same arguments as `MPI_Win_create`) append to not exist.
+The code is *Non-working code* because `MPI_Win_create_shared` (which would return a shared window as does `MPI_Win_allocate_shared`, while taking the same arguments as `MPI_Win_create`) does not exist.
 
 By looking at the [ompi](https://github.com/open-mpi/ompi/blob/master/ompi) source code, and espatially [ompi/win/win.c](https://github.com/open-mpi/ompi/blob/master/ompi/win/win.c), we can guess an equivalent code to `MPI_Win_create_shared`.
 
-### *Non-woring code !!*
+### *Non-working code !!*
 
 ```cpp
 int MPI_Win_allocate_shared(void *base, MPI_Aint size, int disp_unit, MPI_Info info, MPI_Comm comm, MPI_Win *win) {
@@ -147,7 +147,8 @@ int MPI_Win_allocate_shared(void *base, MPI_Aint size, int disp_unit, MPI_Info i
     return err;
 
   int flavor = MPI_WIN_FLAVOR_SHARED;
-  return MPI_Win_set_attr(*win, MPI_WIN_CREATE_FLAVOR, &flavor);
+  int *flavor_ptr = &flavor;
+  return MPI_Win_set_attr(*win, MPI_WIN_CREATE_FLAVOR, &flavor_ptr);
 }
 ```
 
