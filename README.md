@@ -141,7 +141,7 @@ By looking at the [ompi](https://github.com/open-mpi/ompi/blob/master/ompi) sour
 ### *Non-working code !!*
 
 ```cpp
-int MPI_Win_allocate_shared(void *base, MPI_Aint size, int disp_unit, MPI_Info info, MPI_Comm comm, MPI_Win *win) {
+int MPI_Win_create_shared(void *base, MPI_Aint size, int disp_unit, MPI_Info info, MPI_Comm comm, MPI_Win *win) {
   int err = MPI_Win_create(base, size, disp_unit, info, comm, win);
   if (err != 0)
     return err;
@@ -152,6 +152,6 @@ int MPI_Win_allocate_shared(void *base, MPI_Aint size, int disp_unit, MPI_Info i
 }
 ```
 
-Unfortunately this code also append to not work, the error comes from `MPI_Win_set_attr`, which can't set a preset key because in its [ompi implementation](https://github.com/open-mpi/ompi/blob/master/ompi/mpi/c/win_set_attr.c), the called is made to `ompi_attr_set_c(..., false)`, whereas in the implementation of `MPI_Win_allocate_shared` `ompi_attr_set_c(..., true)` is called, which allow it to overwrite preset key.
+Unfortunately this code also append to not work, the error comes from `MPI_Win_set_attr`, which can't set a preset key because in its [ompi implementation](https://github.com/open-mpi/ompi/blob/master/ompi/mpi/c/win_set_attr.c), the called is made to `ompi_attr_set_c(..., false)`, whereas in the implementation of `MPI_Win_allocate_shared` `ompi_attr_set_c(..., true)` is called, which allow it to overwrite a preset key.
 
 I will keep digging, but as far as I know there aren't any "safe" way to implement a `MPI_Win_create_shared` function.
