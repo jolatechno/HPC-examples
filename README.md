@@ -114,12 +114,12 @@ mpirun -np 2 a.out
 
 Combining the code from [the first example](#uma-with-cuda-and-openmp) and the [second](#shared-memory-using-mpi) would have given the following code :
 
-### *Non-working code !!*
+### *Non-working code with standard OPEN-MPI !!*
 
 ```cpp
 if (noderank == 0) {
   /* We first allocate a uma buffer using cudaMallocManaged */
-  cudaMallocManaged((CUdeviceptr**)&table, size*sizeof(int), CU_MEM_ATTACH_GLOBAL);
+  cudaMallocManaged((CUdeviceptr**)&table, table_size*sizeof(int), CU_MEM_ATTACH_GLOBAL);
   /* we then create a shared window using this buffer */
   MPI_Win_create_shared(table, table_size*sizeof(int), sizeof(int), MPI_INFO_NULL, nodecomm, &wintable); // analogous to MPI_Win_create
 } else {
@@ -131,14 +131,25 @@ if (noderank == 0) {
   MPI_Win_shared_query(wintable, 0, &winsize, &windisp, &table);
 }
 /* we finish by making table an omp device pointer using omp_target_associate_ptr */
-omp_target_associate_ptr(table, table, size*sizeof(int), 0 /* device offset */ , gpuid);
+omp_target_associate_ptr(table, table, table_size*sizeof(int), 0 /* device offset */ , gpuid);
+
+/*
+actual code...
+*/
+
+/* free the window */
+MPI_Win_free(&wintable);
+if (rank == 0) {
+  /* free the cuda buffer */
+  cudaFree(table);
+}
 ```
 
 The code is *Non-working code* because `MPI_Win_create_shared` (which would return a shared window as does `MPI_Win_allocate_shared`, while taking the same arguments as `MPI_Win_create`) does not exist.
 
 By looking at the [ompi](https://github.com/open-mpi/ompi/blob/master/ompi) source code, and espatially [ompi/win/win.c](https://github.com/open-mpi/ompi/blob/master/ompi/win/win.c), we can guess an equivalent code to `MPI_Win_create_shared`.
 
-### *Non-working code !!*
+### *Non-working code with standard OPEN-MPI!!*
 
 ```cpp
 int MPI_Win_create_shared(void *base, MPI_Aint size, int disp_unit, MPI_Info info, MPI_Comm comm, MPI_Win *win) {
@@ -147,11 +158,18 @@ int MPI_Win_create_shared(void *base, MPI_Aint size, int disp_unit, MPI_Info inf
     return err;
 
   int flavor = MPI_WIN_FLAVOR_SHARED;
-  int *flavor_ptr = &flavor;
-  return MPI_Win_set_attr(*win, MPI_WIN_CREATE_FLAVOR, &flavor_ptr);
+  return MPI_Win_set_attr(*win, MPI_WIN_CREATE_FLAVOR, &flavor);
 }
 ```
 
 Unfortunately this code also append to not work, the error comes from `MPI_Win_set_attr`, which can't set a preset key because in its [ompi implementation](https://github.com/open-mpi/ompi/blob/master/ompi/mpi/c/win_set_attr.c), the called is made to `ompi_attr_set_c(..., false)`, whereas in the implementation of `MPI_Win_allocate_shared` `ompi_attr_set_c(..., true)` is called, which allow it to overwrite a preset key.
 
 I will keep digging, but as far as I know there aren't any "safe" way to implement a `MPI_Win_create_shared` function.
+
+### Solution - *requires re-compiling OPEN-MPI!!*
+
+The previous code works if you compile ([instructions]()) __OPEN-MPI__ after changing `ompi_attr_set_c(..., false)` to `ompi_attr_set_c(..., true)` in the definition of `MPI_Win_set_attr` inisde of [ompi/mpi/c/win_set_attr.c](https://github.com/open-mpi/ompi/blob/master/ompi/mpi/c/win_set_attr.c).
+
+As far as I can tell, the standard comportment of the function of __OPEN-MPI__ is not specified inside the __MPI__ specification, so I don't know if I should create a pull-request for such a specific edge case which was probably not intended, and isn't particularly "safe".
+
+If you still want to try out __CUDA__ __UMA__ with __MPI__ shared memory, I've created a simple example in [RECOMPILATION-NEEDED_mpi_shared_memory_cuda_uma.cpp](./RECOMPILATION-NEEDED_mpi_shared_memory_cuda_uma.cpp)
