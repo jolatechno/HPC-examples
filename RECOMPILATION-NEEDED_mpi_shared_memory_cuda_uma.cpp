@@ -121,7 +121,7 @@ int main(int argc, char **argv) {
   */
   /* free the window */
   MPI_Win_free(&wintable);
-  if (rank == 0) {
+  if (noderank == 0) {
     /* free the cuda buffer */
     cudaFree(table);
   }
