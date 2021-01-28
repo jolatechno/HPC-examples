@@ -32,6 +32,23 @@ To compile this example, you can use `nvcc` or using `g++` with :
 g++ uma_cuda_omp.cpp -fopenmp -foffload=nvptx-none -I/usr/local/cuda/include -L/usr/local/cuda/lib64 -lcudart -fno-stack-protector -fcf-protection=none
 ```
 
+### Equivalent code using only OPNEMP
+
+__UMA__ is also possible using only __OPNEMP__ as shown in [omp_uma.cpp](./omp_uma.cpp) using the following code :
+
+```cpp
+/* allocate a uma buffer using malloc (or other) */
+#pragma omp extension unified_memory
+int *table = (int*)malloc(size*sizeof(int));
+```
+
+`table` can then be freed as usual:
+
+```cpp
+/* Free memory */
+free(table);
+```
+
 ## Shared memory using MPI
 
 [mpi_shared_window.cpp](./mpi_shared_window.cpp) shows an example of a shared window in __MPI__.
@@ -107,69 +124,3 @@ And you can run it using :
 ```shell
 mpirun -np 2 a.out
 ```
-
-# Future improvements
-
-## CUDA UMA with MPI shared memory
-
-Combining the code from [the first example](#uma-with-cuda-and-openmp) and the [second](#shared-memory-using-mpi) would have given the following code :
-
-### *Non-working code with standard OPEN-MPI !!*
-
-```cpp
-if (noderank == 0) {
-  /* We first allocate a uma buffer using cudaMallocManaged */
-  cudaMallocManaged((CUdeviceptr**)&table, table_size*sizeof(int), CU_MEM_ATTACH_GLOBAL);
-  /* we then create a shared window using this buffer */
-  MPI_Win_create_shared(table, table_size*sizeof(int), sizeof(int), MPI_INFO_NULL, nodecomm, &wintable); // analogous to MPI_Win_create
-} else {
-  /*
-  Only rank 0 on a node actually allocates memory
-  We then get the actual shared table pointer using MPI_Win_shared_query
-  */
-  MPI_Win_create_shared(table, 0, sizeof(int), MPI_INFO_NULL, nodecomm, &wintable);
-  MPI_Win_shared_query(wintable, 0, &winsize, &windisp, &table);
-}
-/* we finish by making table an omp device pointer using omp_target_associate_ptr */
-omp_target_associate_ptr(table, table, table_size*sizeof(int), 0 /* device offset */ , gpuid);
-
-/*
-actual code...
-*/
-
-/* free the window */
-MPI_Win_free(&wintable);
-if (rank == 0) {
-  /* free the cuda buffer */
-  cudaFree(table);
-}
-```
-
-The code is *Non-working code* because `MPI_Win_create_shared` (which would return a shared window as does `MPI_Win_allocate_shared`, while taking the same arguments as `MPI_Win_create`) does not exist.
-
-By looking at the [ompi](https://github.com/open-mpi/ompi/blob/master/ompi) source code, and espatially [ompi/win/win.c](https://github.com/open-mpi/ompi/blob/master/ompi/win/win.c), we can guess an equivalent code to `MPI_Win_create_shared`.
-
-### *Non-working code with standard OPEN-MPI!!*
-
-```cpp
-int MPI_Win_create_shared(void *base, MPI_Aint size, int disp_unit, MPI_Info info, MPI_Comm comm, MPI_Win *win) {
-  int err = MPI_Win_create(base, size, disp_unit, info, comm, win);
-  if (err != 0)
-    return err;
-
-  int flavor = MPI_WIN_FLAVOR_SHARED;
-  return MPI_Win_set_attr(*win, MPI_WIN_CREATE_FLAVOR, &flavor);
-}
-```
-
-Unfortunately this code also append to not work, the error comes from `MPI_Win_set_attr`, which can't set a preset key because in its [ompi implementation](https://github.com/open-mpi/ompi/blob/master/ompi/mpi/c/win_set_attr.c), the called is made to `ompi_attr_set_c(..., false)`, whereas in the implementation of `MPI_Win_allocate_shared` `ompi_attr_set_c(..., true)` is called, which allow it to overwrite a preset key.
-
-I will keep digging, but as far as I know there aren't any "safe" way to implement a `MPI_Win_create_shared` function.
-
-### Solution - *requires re-compiling OPEN-MPI!!*
-
-The previous code works if you compile ([instructions]()) __OPEN-MPI__ after changing `ompi_attr_set_c(..., false)` to `ompi_attr_set_c(..., true)` in the definition of `MPI_Win_set_attr` inisde of [ompi/mpi/c/win_set_attr.c](https://github.com/open-mpi/ompi/blob/master/ompi/mpi/c/win_set_attr.c).
-
-As far as I can tell, the standard comportment of the function of __OPEN-MPI__ is not specified inside the __MPI__ specification, so I don't know if I should create a pull-request for such a specific edge case which was probably not intended, and isn't particularly "safe".
-
-If you still want to try out __CUDA__ __UMA__ with __MPI__ shared memory, I've created a simple example in [RECOMPILATION-NEEDED_mpi_shared_memory_cuda_uma.cpp](./RECOMPILATION-NEEDED_mpi_shared_memory_cuda_uma.cpp)
